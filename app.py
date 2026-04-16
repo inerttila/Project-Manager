@@ -631,12 +631,12 @@ def open_cursor(project_id):
 @app.route('/api/open-odoo-config', methods=['POST'])
 def open_odoo_config():
     settings = load_settings()
-    odoo_config_path = settings.get('odoo_config_path')
+    odoo17_config_path = settings.get('odoo17_config_path')
 
-    if not odoo_config_path:
+    if not odoo17_config_path:
         return jsonify({'error': 'Odoo config path not set'}), 400
     
-    if not os.path.exists(odoo_config_path):
+    if not os.path.exists(odoo17_config_path):
         return jsonify({'error': 'Odoo config file not found at the specified path'}), 404
     
     try:
@@ -646,25 +646,25 @@ def open_odoo_config():
         if system == 'Windows':
             try:
                 subprocess.Popen(
-                    ['cursor', odoo_config_path],
+                    ['cursor', odoo17_config_path],
                     shell=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
                 return jsonify({
-                    'message': f'Opening Odoo config in Cursor: {odoo_config_path}',
+                    'message': f'Opening Odoo config in Cursor: {odoo17_config_path}',
                     'command': 'cursor'
                 })
             except FileNotFoundError:
                 try:
                     subprocess.Popen(
-                        ['code', odoo_config_path],
+                        ['code', odoo17_config_path],
                         shell=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL
                     )
                     return jsonify({
-                        'message': f'Opening Odoo config in VS Code: {odoo_config_path}',
+                        'message': f'Opening Odoo config in VS Code: {odoo17_config_path}',
                         'command': 'code'
                     })
                 except FileNotFoundError:
@@ -676,12 +676,76 @@ def open_odoo_config():
         else:
             try:
                 subprocess.Popen(
-                    ['cursor', odoo_config_path],
+                    ['cursor', odoo17_config_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
                 return jsonify({
-                    'message': f'Opening Odoo config in Cursor: {odoo_config_path}',
+                    'message': f'Opening Odoo config in Cursor: {odoo17_config_path}',
+                    'command': 'cursor'
+                })
+            except FileNotFoundError:
+                return jsonify({
+                    'error': 'Could not find Cursor. Make sure Cursor is installed and added to PATH.'
+                }), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/open-odoo-config-11', methods=['POST'])
+def open_odoo_config_11():
+    settings = load_settings()
+    odoo11_config_path = settings.get('odoo11_config_path')
+
+    if not odoo11_config_path:
+        return jsonify({'error': 'Odoo 11 config path not set'}), 400
+
+    odoo11_config_path = os.path.normpath(odoo11_config_path)
+
+    if not os.path.exists(odoo11_config_path):
+        return jsonify({'error': 'Odoo 11 config file not found at the specified path'}), 404
+
+    try:
+        system = platform.system()
+
+        if system == 'Windows':
+            try:
+                subprocess.Popen(
+                    ['cursor', odoo11_config_path],
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                return jsonify({
+                    'message': f'Opening Odoo 11 config in Cursor: {odoo11_config_path}',
+                    'command': 'cursor'
+                })
+            except FileNotFoundError:
+                try:
+                    subprocess.Popen(
+                        ['code', odoo11_config_path],
+                        shell=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    return jsonify({
+                        'message': f'Opening Odoo 11 config in VS Code: {odoo11_config_path}',
+                        'command': 'code'
+                    })
+                except FileNotFoundError:
+                    return jsonify({
+                        'error': 'Could not find Cursor or VS Code. Make sure Cursor is installed and added to PATH.'
+                    }), 400
+            except Exception as e:
+                return jsonify({'error': f'Error opening file: {str(e)}'}), 500
+        else:
+            try:
+                subprocess.Popen(
+                    ['cursor', odoo11_config_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                return jsonify({
+                    'message': f'Opening Odoo 11 config in Cursor: {odoo11_config_path}',
                     'command': 'cursor'
                 })
             except FileNotFoundError:
@@ -692,17 +756,17 @@ def open_odoo_config():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/settings/odoo-config-path', methods=['GET'])
-def get_odoo_config_path():
+def get_odoo17_config_path():
     settings = load_settings()
-    return jsonify({'odoo_config_path': settings.get('odoo_config_path')}), 200
+    return jsonify({'odoo17_config_path': settings.get('odoo17_config_path')}), 200
 
 @app.route('/api/settings/odoo-config-path', methods=['POST'])
-def set_odoo_config_path():
+def set_odoo17_config_path():
     data = request.json or {}
-    path = data.get('odoo_config_path', '').strip()
+    path = data.get('odoo17_config_path', '').strip()
 
     if not path:
-        return jsonify({'error': 'odoo_config_path is required'}), 400
+        return jsonify({'error': 'odoo17_config_path is required'}), 400
 
     path = os.path.normpath(path)
 
@@ -710,10 +774,34 @@ def set_odoo_config_path():
         return jsonify({'error': 'Odoo config file not found at the specified path'}), 404
 
     settings = load_settings()
-    settings['odoo_config_path'] = path
+    settings['odoo17_config_path'] = path
     save_settings(settings)
 
-    return jsonify({'message': 'Odoo config path saved', 'odoo_config_path': path}), 200
+    return jsonify({'message': 'Odoo config path saved', 'odoo17_config_path': path}), 200
+
+@app.route('/api/settings/odoo11-config-path', methods=['GET'])
+def get_odoo11_config_path():
+    settings = load_settings()
+    return jsonify({'odoo17_config_path': settings.get('odoo11_config_path')}), 200
+
+@app.route('/api/settings/odoo11-config-path', methods=['POST'])
+def set_odoo11_config_path():
+    data = request.json or {}
+    path = data.get('odoo17_config_path', '').strip()
+
+    if not path:
+        return jsonify({'error': 'odoo17_config_path is required'}), 400
+
+    path = os.path.normpath(path)
+
+    if not os.path.exists(path):
+        return jsonify({'error': 'Odoo config file not found at the specified path'}), 404
+
+    settings = load_settings()
+    settings['odoo11_config_path'] = path
+    save_settings(settings)
+
+    return jsonify({'message': 'Odoo 11 config path saved', 'odoo17_config_path': path}), 200
 
 @app.route('/api/path/resolve', methods=['POST'])
 def resolve_path():
