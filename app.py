@@ -1,10 +1,15 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
 import os
 import json
 import subprocess
 import platform
+import queue
+import threading
 from pathlib import Path
+
+from docker_restore import detect_backup_info, restore_docker_database
+from git_stream import run_git_status, run_git_checkout, run_git_pull
 
 if platform.system() == 'Windows':
     CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW
@@ -304,6 +309,78 @@ def project_links(project_id):
     return jsonify({'links': projects[project_id]['links']})
 
 
+def _sse_response(event_stream):
+    response = Response(stream_with_context(event_stream()), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
+
+
+def _queue_event_stream(worker):
+    def event_stream():
+        log_queue = queue.Queue()
+
+        def run_worker():
+            try:
+                result = worker(lambda message: log_queue.put(('log', message)))
+                log_queue.put(('done', result or {}))
+            except Exception as exc:
+                log_queue.put(('error', str(exc)))
+
+        threading.Thread(target=run_worker, daemon=True).start()
+
+        while True:
+            kind, payload = log_queue.get()
+            if kind == 'log':
+                yield f"data: {json.dumps({'type': 'log', 'message': payload})}\n\n"
+            elif kind == 'done':
+                yield f"data: {json.dumps({'type': 'done', 'result': payload})}\n\n"
+                break
+            elif kind == 'error':
+                yield f"data: {json.dumps({'type': 'error', 'message': payload})}\n\n"
+                break
+
+    return _sse_response(event_stream)
+
+
+def _get_project_path(project_id):
+    projects = load_projects()
+    if project_id < 0 or project_id >= len(projects):
+        return None, (jsonify({'error': 'Project not found'}), 404)
+    project_path = projects[project_id]['path']
+    if not os.path.exists(project_path):
+        return None, (jsonify({'error': 'Project path does not exist'}), 404)
+    return project_path, None
+
+
+@app.route('/api/projects/<int:project_id>/git-stream', methods=['POST'])
+def git_stream(project_id):
+    project_path, error = _get_project_path(project_id)
+    if error:
+        return error
+
+    data = request.json or {}
+    action = (data.get('action') or '').strip()
+    branch_name = (data.get('branch') or '').strip()
+
+    if action == 'checkout' and not branch_name:
+        return jsonify({'error': 'Branch name is required'}), 400
+    if action not in {'status', 'checkout', 'pull'}:
+        return jsonify({'error': 'Invalid git action'}), 400
+
+    def worker(log):
+        if action == 'status':
+            branch = run_git_status(project_path, log)
+            return {'action': 'status', 'branch': branch}
+        if action == 'checkout':
+            output = run_git_checkout(project_path, branch_name, log)
+            return {'action': 'checkout', 'branch': branch_name, 'output': output}
+        output = run_git_pull(project_path, log)
+        return {'action': 'pull', 'output': output}
+
+    return _queue_event_stream(worker)
+
+
 @app.route('/api/projects/<int:project_id>/git-status', methods=['GET'])
 def git_status(project_id):
     projects = load_projects()
@@ -492,6 +569,91 @@ def get_git_remote(project_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def _ps_single_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _resolve_launch_vars(value, workspace_folder):
+    if not isinstance(value, str):
+        return value
+    return value.replace('${workspaceFolder}', workspace_folder).replace(
+        '${workspaceFolderBasename}', os.path.basename(workspace_folder)
+    )
+
+
+def _load_launch_config(project_path):
+    launch_path = os.path.join(project_path, '.vscode', 'launch.json')
+    if not os.path.exists(launch_path):
+        return None, 'No .vscode/launch.json found in this project'
+
+    try:
+        with open(launch_path, 'r', encoding='utf-8') as f:
+            raw = f.read()
+        # Strip // comments sometimes present in VS Code JSON
+        lines = []
+        for line in raw.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith('//'):
+                continue
+            lines.append(line)
+        data = json.loads('\n'.join(lines))
+    except Exception as e:
+        return None, f'Failed to read launch.json: {e}'
+
+    configs = data.get('configurations') if isinstance(data, dict) else None
+    if not isinstance(configs, list) or not configs:
+        return None, 'launch.json has no configurations'
+
+    config = configs[0]
+    for candidate in configs:
+        name = str(candidate.get('name', '')).lower()
+        if 'odoo' in name:
+            config = candidate
+            break
+
+    python_exe = _resolve_launch_vars(config.get('python') or config.get('pythonPath') or '', project_path)
+    program = _resolve_launch_vars(config.get('program') or '', project_path)
+    args = config.get('args') or []
+    if not isinstance(args, list):
+        return None, 'launch.json args must be a list'
+
+    args = [_resolve_launch_vars(arg, project_path) for arg in args]
+
+    if not python_exe:
+        return None, 'launch.json is missing python path'
+    if not program:
+        return None, 'launch.json is missing program path'
+    if not os.path.exists(python_exe):
+        return None, f'Python not found: {python_exe}'
+    if not os.path.exists(program):
+        return None, f'Program not found: {program}'
+
+    return {
+        'name': config.get('name', 'Launch'),
+        'python': python_exe,
+        'program': program,
+        'args': args,
+        'cwd': project_path,
+    }, None
+
+
+def _open_powershell_command(project_path, command=None):
+    path_escaped = project_path.replace("'", "''")
+    if command:
+        full_command = "Set-Location -LiteralPath '%s'; %s" % (path_escaped, command)
+    else:
+        full_command = "Set-Location -LiteralPath '%s'" % path_escaped
+    cmd = [None, '-NoExit', '-Command', full_command]
+    for exe in ('pwsh', 'pwsh.exe', 'powershell', 'powershell.exe'):
+        try:
+            cmd[0] = exe
+            subprocess.Popen(cmd, creationflags=CREATE_NEW_CONSOLE)
+            return None
+        except FileNotFoundError:
+            continue
+    return 'PowerShell not found (tried pwsh, powershell)'
+
+
 @app.route('/api/projects/<int:project_id>/open-terminal', methods=['POST'])
 def open_terminal(project_id):
     projects = load_projects()
@@ -502,20 +664,9 @@ def open_terminal(project_id):
         return jsonify({'error': 'Project path does not exist'}), 404
     try:
         if platform.system() == 'Windows':
-            path_escaped = project_path.replace("'", "''")
-            cmd = [
-                None, '-NoExit', '-Command',
-                "Set-Location -LiteralPath '%s'" % path_escaped
-            ]
-            for exe in ('pwsh', 'pwsh.exe', 'powershell', 'powershell.exe'):
-                try:
-                    cmd[0] = exe
-                    subprocess.Popen(cmd, creationflags=CREATE_NEW_CONSOLE)
-                    break
-                except FileNotFoundError:
-                    continue
-            else:
-                return jsonify({'error': 'PowerShell not found (tried pwsh, powershell)'}), 400
+            err = _open_powershell_command(project_path)
+            if err:
+                return jsonify({'error': err}), 400
         else:
             if platform.system() == 'Darwin':
                 script = 'tell application "Terminal" to do script "cd \'%s\' && exec $SHELL"' % project_path.replace("'", "'\\''")
@@ -530,6 +681,66 @@ def open_terminal(project_id):
                 else:
                     return jsonify({'error': 'No terminal found (tried gnome-terminal, xterm, konsole)'}), 400
         return jsonify({'message': 'Terminal opened', 'path': project_path}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<int:project_id>/start', methods=['POST'])
+def start_project(project_id):
+    projects = load_projects()
+    if project_id < 0 or project_id >= len(projects):
+        return jsonify({'error': 'Project not found'}), 404
+
+    project_path = projects[project_id]['path']
+    if not os.path.exists(project_path):
+        return jsonify({'error': 'Project path does not exist'}), 404
+
+    launch, error = _load_launch_config(project_path)
+    if error:
+        return jsonify({'error': error}), 400
+
+    try:
+        if platform.system() == 'Windows':
+            parts = [
+                '&',
+                _ps_single_quote(launch['python']),
+                _ps_single_quote(launch['program']),
+            ]
+            parts.extend(_ps_single_quote(arg) for arg in launch['args'])
+            run_cmd = ' '.join(parts)
+            err = _open_powershell_command(project_path, run_cmd)
+            if err:
+                return jsonify({'error': err}), 400
+        else:
+            cmd = [launch['python'], launch['program']] + launch['args']
+            if platform.system() == 'Darwin':
+                quoted = ' '.join("'%s'" % c.replace("'", "'\\''") for c in cmd)
+                script = 'tell application "Terminal" to do script "cd \'%s\' && %s"' % (
+                    project_path.replace("'", "'\\''"),
+                    quoted,
+                )
+                subprocess.Popen(['osascript', '-e', script])
+            else:
+                for term in ['gnome-terminal', 'xterm', 'konsole']:
+                    try:
+                        if term == 'gnome-terminal':
+                            subprocess.Popen(
+                                [term, '--working-directory', project_path, '--'] + cmd
+                            )
+                        else:
+                            subprocess.Popen(cmd, cwd=project_path)
+                        break
+                    except FileNotFoundError:
+                        continue
+                else:
+                    return jsonify({'error': 'No terminal found to show logs'}), 400
+
+        return jsonify({
+            'message': f"Started {launch['name']}",
+            'python': launch['python'],
+            'program': launch['program'],
+            'args': launch['args'],
+        }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -802,6 +1013,120 @@ def set_odoo11_config_path():
     save_settings(settings)
 
     return jsonify({'message': 'Odoo 11 config path saved', 'odoo17_config_path': path}), 200
+
+@app.route('/api/docker-restore/detect', methods=['POST'])
+def docker_restore_detect():
+    data = request.json or {}
+    backup_path = data.get('backup_path', '').strip()
+    if not backup_path:
+        return jsonify({'error': 'backup_path is required'}), 400
+
+    try:
+        info = detect_backup_info(backup_path)
+        return jsonify({
+            'backup_path': info['backup_path'],
+            'db_name': info['db_name'],
+            'container_name': info['container_name'],
+            'port': info['port'],
+            'has_filestore': info['has_filestore'],
+        }), 200
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 400
+
+
+@app.route('/api/docker-restore/restore', methods=['POST'])
+def docker_restore_run():
+    data = request.json or {}
+    backup_path = data.get('backup_path', '').strip()
+    db_name = data.get('db_name', '').strip() or None
+    odoo_sessions_dir = data.get('odoo_sessions_dir', '').strip() or None
+
+    if not backup_path:
+        return jsonify({'error': 'backup_path is required'}), 400
+
+    settings = load_settings()
+    if not odoo_sessions_dir:
+        odoo_sessions_dir = settings.get('odoo_sessions_dir', r'C:\Users\i.tila\Documents\Odoo17\sessions')
+
+    try:
+        result = restore_docker_database(
+            backup_path=backup_path,
+            db_name=db_name,
+            odoo_sessions_dir=odoo_sessions_dir,
+        )
+
+        instances = settings.get('docker_db_instances', {})
+        instances[result['db_name']] = {
+            'backup_path': os.path.normpath(backup_path),
+            'container_name': result['container_name'],
+            'port': result['port'],
+        }
+        settings['docker_db_instances'] = instances
+        settings['odoo_sessions_dir'] = odoo_sessions_dir
+        save_settings(settings)
+
+        return jsonify(result), 200
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+def _save_restore_settings(settings, backup_path, result, odoo_sessions_dir):
+    instances = settings.get('docker_db_instances', {})
+    instances[result['db_name']] = {
+        'backup_path': os.path.normpath(backup_path),
+        'container_name': result['container_name'],
+        'port': result['port'],
+    }
+    settings['docker_db_instances'] = instances
+    settings['odoo_sessions_dir'] = odoo_sessions_dir
+    save_settings(settings)
+
+
+@app.route('/api/docker-restore/restore-stream', methods=['POST'])
+def docker_restore_stream():
+    data = request.json or {}
+    backup_path = data.get('backup_path', '').strip()
+    db_name = data.get('db_name', '').strip() or None
+    odoo_sessions_dir = data.get('odoo_sessions_dir', '').strip() or None
+
+    if not backup_path:
+        return jsonify({'error': 'backup_path is required'}), 400
+
+    settings = load_settings()
+    if not odoo_sessions_dir:
+        odoo_sessions_dir = settings.get('odoo_sessions_dir', r'C:\Users\i.tila\Documents\Odoo17\sessions')
+
+    def event_stream():
+        log_queue = queue.Queue()
+
+        def worker():
+            try:
+                result = restore_docker_database(
+                    backup_path=backup_path,
+                    db_name=db_name,
+                    odoo_sessions_dir=odoo_sessions_dir,
+                    log_callback=lambda message: log_queue.put(('log', message)),
+                )
+                _save_restore_settings(settings, backup_path, result, odoo_sessions_dir)
+                log_queue.put(('done', result))
+            except Exception as exc:
+                log_queue.put(('error', str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        while True:
+            kind, payload = log_queue.get()
+            if kind == 'log':
+                yield f"data: {json.dumps({'type': 'log', 'message': payload})}\n\n"
+            elif kind == 'done':
+                yield f"data: {json.dumps({'type': 'done', 'result': payload})}\n\n"
+                break
+            elif kind == 'error':
+                yield f"data: {json.dumps({'type': 'error', 'message': payload})}\n\n"
+                break
+
+    return _sse_response(event_stream)
+
 
 @app.route('/api/path/resolve', methods=['POST'])
 def resolve_path():

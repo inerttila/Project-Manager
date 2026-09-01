@@ -177,6 +177,10 @@ function showProjectMenu(projectId, event) {
   const menu = document.createElement("div");
   menu.className = "project-menu-dropdown";
   menu.innerHTML = `
+        <div class="menu-item" onclick="startProject(${projectId})">
+            <span>▶️</span>
+            <span>Start</span>
+        </div>
         <div class="menu-item" onclick="openCursor(${projectId})">
             <span>💻</span>
             <span>Open Cursor</span>
@@ -301,6 +305,28 @@ async function openTerminal(projectId) {
   } catch (error) {
     console.error("Error opening terminal:", error);
     showNotification("Failed to open terminal", "error");
+  }
+}
+
+// Start project using .vscode/launch.json (opens PowerShell with logs)
+async function startProject(projectId) {
+  const menu = document.querySelector(".project-menu-dropdown");
+  if (menu) menu.remove();
+
+  try {
+    const response = await fetch(`${API_BASE}/projects/${projectId}/start`, {
+      method: "POST",
+    });
+    const data = await response.json();
+
+    if (response.ok) {
+      showNotification(data.message || "Starting project...", "success");
+    } else {
+      showNotification(data.error || "Failed to start project", "error");
+    }
+  } catch (error) {
+    console.error("Error starting project:", error);
+    showNotification("Failed to start project", "error");
   }
 }
 
@@ -622,16 +648,95 @@ function renderLinksList() {
     .join("");
 }
 
+// --- Shared terminal helpers ---
+function clearTerminal(elementId) {
+  const logEl = document.getElementById(elementId);
+  logEl.innerHTML = "";
+  logEl.classList.add("empty");
+}
+
+function appendTerminalLine(elementId, message, type = "log") {
+  const logEl = document.getElementById(elementId);
+  logEl.classList.remove("empty");
+
+  const line = document.createElement("div");
+  if (type === "error") line.className = "log-error";
+  else if (type === "success") line.className = "log-success";
+  else if (type === "command") line.className = "log-command";
+  line.textContent = message;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function consumeEventStream(
+  response,
+  elementId,
+  successMessage = "Command finished successfully.",
+) {
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Command failed");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() || "";
+
+    for (const chunk of chunks) {
+      const line = chunk.trim();
+      if (!line.startsWith("data: ")) continue;
+
+      const data = JSON.parse(line.slice(6));
+      if (data.type === "log") {
+        const type = data.message.startsWith("$ ") ? "command" : "log";
+        appendTerminalLine(elementId, data.message, type);
+      } else if (data.type === "error") {
+        appendTerminalLine(elementId, `ERROR: ${data.message}`, "error");
+        throw new Error(data.message);
+      } else if (data.type === "done") {
+        finalResult = data.result;
+        appendTerminalLine(elementId, successMessage, "success");
+      }
+    }
+  }
+
+  return finalResult;
+}
+
+async function runGitStream(action, options = {}) {
+  if (currentProjectId === null) return;
+
+  clearTerminal("gitOutput");
+  appendTerminalLine("gitOutput", `Running git ${action}...`);
+
+  const response = await fetch(
+    `${API_BASE}/projects/${currentProjectId}/git-stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...options }),
+    },
+  );
+
+  return consumeEventStream(response, "gitOutput");
+}
+
 // Open project actions modal
 function openProjectActions(projectId) {
   currentProjectId = projectId;
   const project = projects[projectId];
   document.getElementById("projectNameTitle").textContent = project.name;
   document.getElementById("actionsModal").style.display = "block";
-  document
-    .getElementById("gitOutput")
-    .classList.remove("show", "success", "error");
-  document.getElementById("gitOutput").textContent = "";
+  clearTerminal("gitOutput");
 }
 
 // Close actions modal
@@ -644,27 +749,11 @@ function closeActionsModal() {
 async function showGitStatus() {
   if (currentProjectId === null) return;
 
-  const output = document.getElementById("gitOutput");
-  output.textContent = "Loading...";
-  output.classList.add("show");
-  output.classList.remove("success", "error");
-
   try {
-    const response = await fetch(
-      `${API_BASE}/projects/${currentProjectId}/git-status`,
-    );
-    const data = await response.json();
-
-    if (response.ok) {
-      output.textContent = `Current Branch: ${data.branch}\n\n${data.status}`;
-      output.classList.add("success");
-    } else {
-      output.textContent = `Error: ${data.error || "Failed to get git status"}`;
-      output.classList.add("error");
-    }
+    await runGitStream("status");
   } catch (error) {
-    output.textContent = `Error: ${error.message}`;
-    output.classList.add("error");
+    console.error("Error getting git status:", error);
+    showNotification(error.message || "Failed to get git status", "error");
   }
 }
 
@@ -691,37 +780,16 @@ async function checkoutBranch(event) {
 
   if (currentProjectId === null) return;
 
-  const output = document.getElementById("gitOutput");
-  output.textContent = "Switching branch...";
-  output.classList.add("show");
-  output.classList.remove("success", "error");
-
   closeCheckoutModal();
 
   try {
-    const response = await fetch(
-      `${API_BASE}/projects/${currentProjectId}/checkout`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ branch: branchName }),
-      },
-    );
-
-    const data = await response.json();
-
-    if (response.ok) {
-      output.textContent = `${data.message}\n\n${data.output || ""}`;
-      output.classList.add("success");
-    } else {
-      output.textContent = `Error: ${data.error || data.message || "Failed to switch branch"}`;
-      output.classList.add("error");
+    const result = await runGitStream("checkout", { branch: branchName });
+    if (result?.branch) {
+      showNotification(`Switched to branch: ${result.branch}`, "success");
     }
   } catch (error) {
-    output.textContent = `Error: ${error.message}`;
-    output.classList.add("error");
+    console.error("Error switching branch:", error);
+    showNotification(error.message || "Failed to switch branch", "error");
   }
 }
 
@@ -729,34 +797,12 @@ async function checkoutBranch(event) {
 async function gitPull() {
   if (currentProjectId === null) return;
 
-  const output = document.getElementById("gitOutput");
-  output.textContent = "Pulling changes...";
-  output.classList.add("show");
-  output.classList.remove("success", "error");
-
   try {
-    const response = await fetch(
-      `${API_BASE}/projects/${currentProjectId}/pull`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    const data = await response.json();
-
-    if (response.ok) {
-      output.textContent = `${data.message}\n\n${data.output || ""}`;
-      output.classList.add("success");
-    } else {
-      output.textContent = `Error: ${data.error || data.message || "Failed to pull changes"}`;
-      output.classList.add("error");
-    }
+    await runGitStream("pull");
+    showNotification("Pull completed", "success");
   } catch (error) {
-    output.textContent = `Error: ${error.message}`;
-    output.classList.add("error");
+    console.error("Error pulling changes:", error);
+    showNotification(error.message || "Failed to pull changes", "error");
   }
 }
 
@@ -779,6 +825,112 @@ function showNotification(message, type = "info") {
   setTimeout(() => {
     notification.classList.remove("show");
   }, 3000);
+}
+
+// --- Docker Restore ---
+function showDockerRestoreModal() {
+  document.getElementById("dockerRestoreModal").style.display = "block";
+  clearTerminal("dockerRestoreLog");
+}
+
+function closeDockerRestoreModal() {
+  document.getElementById("dockerRestoreModal").style.display = "none";
+}
+
+async function detectDockerBackup() {
+  const backupPath = document.getElementById("dockerBackupPath").value.trim();
+  if (!backupPath) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/docker-restore/detect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ backup_path: backupPath }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      showNotification(data.error || "Failed to detect backup", "error");
+      return;
+    }
+
+    document.getElementById("dockerDbName").value = data.db_name || "";
+  } catch (error) {
+    console.error("Error detecting backup:", error);
+    showNotification("Failed to detect backup folder", "error");
+  }
+}
+
+async function runDockerRestore(event) {
+  event.preventDefault();
+
+  const backupPath = document.getElementById("dockerBackupPath").value.trim();
+  let dbName = document.getElementById("dockerDbName").value.trim();
+  const restoreBtn = document.getElementById("dockerRestoreBtn");
+
+  if (!backupPath) {
+    showNotification("Please enter a backup folder path", "error");
+    return;
+  }
+
+  if (!dbName) {
+    try {
+      const detectResponse = await fetch(`${API_BASE}/docker-restore/detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backup_path: backupPath }),
+      });
+      const detectData = await detectResponse.json();
+      if (!detectResponse.ok) {
+        showNotification(detectData.error || "Failed to detect backup", "error");
+        return;
+      }
+      dbName = detectData.db_name || "";
+      document.getElementById("dockerDbName").value = dbName;
+    } catch (error) {
+      showNotification("Failed to detect backup folder", "error");
+      return;
+    }
+  }
+
+  if (!dbName) {
+    showNotification("Database name is required", "error");
+    return;
+  }
+
+  restoreBtn.disabled = true;
+  restoreBtn.textContent = "Restoring...";
+  clearTerminal("dockerRestoreLog");
+  appendTerminalLine("dockerRestoreLog", "Starting restore...");
+
+  try {
+    const response = await fetch(`${API_BASE}/docker-restore/restore-stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backup_path: backupPath,
+        db_name: dbName,
+      }),
+    });
+
+    const result = await consumeEventStream(
+      response,
+      "dockerRestoreLog",
+      "Restore finished successfully.",
+    );
+    if (result?.db_name) {
+      showNotification(
+        `Restored ${result.db_name} in container ${result.container_name || result.db_name + "-postgres"} on localhost:5435`,
+        "success",
+      );
+    }
+  } catch (error) {
+    console.error("Error restoring database:", error);
+    appendTerminalLine("dockerRestoreLog", error.message || "Restore failed", "error");
+    showNotification(error.message || "Restore failed", "error");
+  } finally {
+    restoreBtn.disabled = false;
+    restoreBtn.textContent = "Restore";
+  }
 }
 
 // Show Odoo Config Path Modal

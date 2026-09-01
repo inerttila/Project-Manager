@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Git Project Manager</title>
+    <title>Project Manager</title>
     <link rel="icon" href="https://media2.giphy.com/media/QssGEmpkyEOhBCb7e1/giphy.gif?cid=ecf05e47a0n3gi1bfqntqmob8g9aid1oyj2wr3ds3mg700bl&amp;rid=giphy.gif" type="image/png">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -14,10 +14,11 @@
     <div class="container">
         <header>
             <div class="header-title">
-                <img src="https://media2.giphy.com/media/QssGEmpkyEOhBCb7e1/giphy.gif?cid=ecf05e47a0n3gi1bfqntqmob8g9aid1oyj2wr3ds3mg700bl&rid=giphy.gif" alt="Git Project Manager" class="header-logo">
-                <h1>Git Project Manager</h1>
+                <img src="https://media2.giphy.com/media/QssGEmpkyEOhBCb7e1/giphy.gif?cid=ecf05e47a0n3gi1bfqntqmob8g9aid1oyj2wr3ds3mg700bl&rid=giphy.gif" alt="Project Manager" class="header-logo">
+                <h1>Project Manager</h1>
             </div>
             <div class="header-buttons">
+                <button class="btn-odoo btn-docker" onclick="showDockerRestoreModal()">Restore DB Docker</button>
                 <button class="btn-odoo" onclick="openOdooConfig()">Odoo config 17</button>
                 <button class="btn-odoo" onclick="openOdooConfig11()">Odoo config 11</button>
                 <button class="btn-add" onclick="showAddProjectModal()">+ Add Project</button>
@@ -82,31 +83,30 @@
             <h2 id="projectNameTitle">Project Actions</h2>
             <div class="actions-container">
                 <button class="action-btn" onclick="showGitStatus()">
-                    <div class="action-icon">📊</div>
-                    <div class="action-content">
-                        <div class="action-title">Show Git Status</div>
-                        <div class="action-desc">View branch and repository status</div>
-                    </div>
-                    <div class="action-arrow">→</div>
+                    <span class="action-mark">git status</span>
+                    <span class="action-title">Show Git Status</span>
+                    <span class="action-arrow">→</span>
                 </button>
                 <button class="action-btn" onclick="showCheckoutModal()">
-                    <div class="action-icon">🔄</div>
-                    <div class="action-content">
-                        <div class="action-title">Switch Branch</div>
-                        <div class="action-desc">Checkout a different branch</div>
-                    </div>
-                    <div class="action-arrow">→</div>
+                    <span class="action-mark">git checkout</span>
+                    <span class="action-title">Switch Branch</span>
+                    <span class="action-arrow">→</span>
                 </button>
                 <button class="action-btn" onclick="gitPull()">
-                    <div class="action-icon">⬇️</div>
-                    <div class="action-content">
-                        <div class="action-title">Pull Changes</div>
-                        <div class="action-desc">Fetch and merge from remote</div>
-                    </div>
-                    <div class="action-arrow">→</div>
+                    <span class="action-mark">git pull</span>
+                    <span class="action-title">Pull Changes</span>
+                    <span class="action-arrow">→</span>
                 </button>
             </div>
-            <div id="gitOutput" class="git-output"></div>
+            <div class="terminal-wrap">
+                <div class="terminal-header">
+                    <span class="terminal-dot red"></span>
+                    <span class="terminal-dot yellow"></span>
+                    <span class="terminal-dot green"></span>
+                    <span class="terminal-title">git.log</span>
+                </div>
+                <pre id="gitOutput" class="terminal-log empty"></pre>
+            </div>
         </div>
     </div>
 
@@ -144,6 +144,34 @@
                 <button type="button" class="btn-primary btn-add-link" onclick="addLink()">Add link</button>
             </div>
             <ul id="linksList" class="links-list"></ul>
+        </div>
+    </div>
+
+    <!-- Docker Restore Modal -->
+    <div id="dockerRestoreModal" class="modal">
+        <div class="modal-content docker-restore-modal">
+            <span class="close" onclick="closeDockerRestoreModal()">&times;</span>
+            <h2>Restore DB Docker</h2>
+            <form id="dockerRestoreForm" onsubmit="runDockerRestore(event)">
+                <div class="form-group">
+                    <label for="dockerBackupPath">Backup folder path</label>
+                    <input type="text" id="dockerBackupPath" placeholder="Paste backup folder path" required onblur="detectDockerBackup()">
+                </div>
+                <div class="form-group">
+                    <label for="dockerDbName">Database name</label>
+                    <input type="text" id="dockerDbName" placeholder="database_name" required>
+                </div>
+                <button type="submit" class="btn-primary" id="dockerRestoreBtn">Restore</button>
+            </form>
+            <div class="terminal-wrap">
+                <div class="terminal-header">
+                    <span class="terminal-dot red"></span>
+                    <span class="terminal-dot yellow"></span>
+                    <span class="terminal-dot green"></span>
+                    <span class="terminal-title">restore.log</span>
+                </div>
+                <pre id="dockerRestoreLog" class="terminal-log empty"></pre>
+            </div>
         </div>
     </div>
 
