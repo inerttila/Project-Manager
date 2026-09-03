@@ -25,6 +25,17 @@
             </div>
         </header>
 
+        <!-- Floating Quick Type-to-Search HUD -->
+        <div id="quickSearchHud" class="quick-search-hud" style="display: none;">
+            <span class="hud-icon">🔍</span>
+            <span class="hud-label">Search:</span>
+            <span class="hud-query" id="hudQuery"></span>
+            <span class="hud-cursor"></span>
+            <span class="hud-count" id="hudCount">0</span>
+            <button type="button" class="hud-clear-btn" onclick="clearQuickSearch()" title="Clear search (Esc)">&times;</button>
+            <span class="hud-hint">Esc</span>
+        </div>
+
         <div id="projects-container" class="projects-grid">
             <!-- Projects will be loaded here -->
         </div>

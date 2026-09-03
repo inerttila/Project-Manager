@@ -81,6 +81,126 @@ header {
     align-items: center;
 }
 
+/* Quick Type-to-Search Floating HUD (Bottom Middle - Larger) */
+.quick-search-hud {
+    position: fixed;
+    bottom: 34px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: rgba(17, 24, 39, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: 0 12px 35px -5px rgba(0, 0, 0, 0.65), 0 0 30px rgba(59, 130, 246, 0.45);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    padding: 12px 24px;
+    border-radius: 9999px;
+    z-index: 1000;
+    color: #ffffff;
+    font-size: 1.05rem;
+    animation: hudSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: auto;
+}
+
+@keyframes hudSlideUp {
+    from {
+        opacity: 0;
+        transform: translate(-50%, 14px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
+.hud-icon {
+    font-size: 1.3rem;
+    opacity: 0.9;
+}
+
+.hud-label {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.88rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+}
+
+.hud-query {
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.4px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 1.3rem;
+    background: rgba(255, 255, 255, 0.15);
+    padding: 4px 12px;
+    border-radius: 6px;
+}
+
+.hud-cursor {
+    display: inline-block;
+    width: 2.5px;
+    height: 1.2em;
+    background-color: #60a5fa;
+    margin-left: -8px;
+    animation: hudBlink 1s infinite;
+}
+
+@keyframes hudBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+.hud-count {
+    background: rgba(37, 99, 235, 0.45);
+    border: 1px solid rgba(96, 165, 250, 0.5);
+    color: #bfdbfe;
+    font-size: 0.92rem;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 14px;
+    white-space: nowrap;
+}
+
+.hud-count.empty {
+    background: rgba(239, 68, 68, 0.35);
+    border-color: rgba(248, 113, 113, 0.45);
+    color: #fca5a5;
+}
+
+.hud-clear-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: rgba(255, 255, 255, 0.85);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    line-height: 1;
+    transition: all 0.2s ease;
+}
+
+.hud-clear-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    color: #ffffff;
+}
+
+.hud-hint {
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-family: inherit;
+}
+
 h1 {
     color: #ffffff;
     font-size: 2rem;
@@ -239,6 +359,63 @@ h1 {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(230px, 2fr));
     gap: 20px;
+    transition: all 0.3s ease;
+}
+
+.projects-grid.centered-results {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 20px;
+    margin: 20px auto;
+}
+
+.projects-grid.centered-results .project-card {
+    width: 285px;
+    min-width: 285px;
+    max-width: 285px;
+    flex: 0 0 285px;
+    min-height: 160px;
+}
+
+.no-search-results {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 45px 20px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.no-search-results p {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1.15rem;
+    margin-bottom: 16px;
+}
+
+.no-search-results strong {
+    color: #ffffff;
+}
+
+.btn-clear-search {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 8px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-clear-search:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
 }
 
 .project-card {
@@ -255,6 +432,7 @@ h1 {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+    min-height: 160px;
 }
 
 .project-card.dragging {
@@ -967,4 +1145,11 @@ h1 {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+    header {
+        flex-wrap: wrap;
+        gap: 16px;
+    }
 }

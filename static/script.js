@@ -5,10 +5,12 @@ let currentLinksProjectIndex = null;
 let projects = [];
 let draggingProjectIndex = null;
 let currentOdooConfigVersion = "17";
+let searchQuery = "";
 
 // Load projects on page load
 document.addEventListener("DOMContentLoaded", () => {
   loadProjects();
+  initSearch();
 });
 
 // Load all projects
@@ -23,6 +25,118 @@ async function loadProjects() {
   }
 }
 
+// Get projects filtered by active search query
+function getFilteredProjects() {
+  const query = searchQuery.trim().toLowerCase();
+  const indexedProjects = projects.map((project, index) => ({
+    ...project,
+    originalIndex: index,
+  }));
+
+  if (!query) {
+    return indexedProjects;
+  }
+
+  return indexedProjects.filter((project) => {
+    const nameMatch = project.name && project.name.toLowerCase().includes(query);
+    const pathMatch = project.path && project.path.toLowerCase().includes(query);
+    return nameMatch || pathMatch;
+  });
+}
+
+// Check if any modal is currently open
+function isModalOpen() {
+  const modals = document.querySelectorAll(".modal");
+  for (const modal of modals) {
+    if (modal.style.display && modal.style.display !== "none") {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Check if an input, textarea or editable element is focused
+function isInputElement(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+}
+
+// Update floating quick search HUD
+function updateSearchStatus(filteredCount, totalCount) {
+  const hud = document.getElementById("quickSearchHud");
+  const queryEl = document.getElementById("hudQuery");
+  const countEl = document.getElementById("hudCount");
+  if (!hud || !queryEl || !countEl) return;
+
+  if (!searchQuery.trim()) {
+    hud.style.display = "none";
+    return;
+  }
+
+  hud.style.display = "flex";
+  queryEl.textContent = searchQuery;
+
+  if (filteredCount === 0) {
+    countEl.textContent = "0 found";
+    countEl.className = "hud-count empty";
+  } else {
+    countEl.textContent = `${filteredCount} of ${totalCount}`;
+    countEl.className = "hud-count";
+  }
+}
+
+// Clear active quick search
+function clearQuickSearch() {
+  searchQuery = "";
+  renderProjects();
+}
+
+// Initialize type-to-search keyboard listener
+function initSearch() {
+  window.addEventListener("keydown", (e) => {
+    // If user is focused on an input/textarea or a modal is currently open, do not intercept
+    if (isInputElement(document.activeElement) || isModalOpen()) {
+      return;
+    }
+
+    // Escape: clear search
+    if (e.key === "Escape") {
+      if (searchQuery) {
+        e.preventDefault();
+        clearQuickSearch();
+      }
+      return;
+    }
+
+    // Backspace: remove last character
+    if (e.key === "Backspace") {
+      if (searchQuery.length > 0) {
+        e.preventDefault();
+        searchQuery = searchQuery.slice(0, -1);
+        renderProjects();
+      }
+      return;
+    }
+
+    // Ignore shortcut modifier keys (Ctrl, Alt, Meta)
+    if (e.ctrlKey || e.altKey || e.metaKey) {
+      return;
+    }
+
+    // Printable single characters (letters, numbers, symbols)
+    if (e.key && e.key.length === 1) {
+      // Don't start a fresh search with a space
+      if (searchQuery.length === 0 && e.key === " ") {
+        return;
+      }
+      e.preventDefault();
+      searchQuery += e.key;
+      renderProjects();
+    }
+  });
+}
+
 // Render projects as cards
 function renderProjects() {
   const container = document.getElementById("projects-container");
@@ -30,23 +144,50 @@ function renderProjects() {
   if (projects.length === 0) {
     container.innerHTML =
       '<p style="text-align: center; color: white; font-size: 1.2rem; grid-column: 1 / -1;">No projects added yet. Click "Add Project" to get started!</p>';
+    updateSearchStatus(0, 0);
     return;
   }
 
-  container.innerHTML = projects
+  const filtered = getFilteredProjects();
+  const isFiltered = searchQuery.trim().length > 0;
+  updateSearchStatus(filtered.length, projects.length);
+
+  if (filtered.length === 0) {
+    container.className = "projects-grid";
+    container.innerHTML = `
+      <div class="no-search-results">
+        <p>No projects found matching "<strong>${escapeHtml(searchQuery)}</strong>"</p>
+        <button type="button" class="btn-clear-search" onclick="clearQuickSearch()">Clear search (Esc)</button>
+      </div>
+    `;
+    return;
+  }
+
+  // If 3 or under 3 search results during active search, center them on screen
+  if (isFiltered && filtered.length <= 3) {
+    container.className = "projects-grid centered-results";
+  } else {
+    container.className = "projects-grid";
+  }
+
+  container.innerHTML = filtered
     .map(
-      (project, index) => `
+      (project) => `
         <div class="project-card" 
-             draggable="true"
-             data-project-index="${index}"
-             onclick="openProjectActions(${index})"
-             ondragstart="handleDragStart(event, ${index})"
-             ondragover="handleDragOver(event, ${index})"
+             draggable="${isFiltered ? "false" : "true"}"
+             data-project-index="${project.originalIndex}"
+             onclick="openProjectActions(${project.originalIndex})"
+             ${
+               !isFiltered
+                 ? `ondragstart="handleDragStart(event, ${project.originalIndex})"
+             ondragover="handleDragOver(event, ${project.originalIndex})"
              ondragleave="handleDragLeave(event)"
-             ondrop="handleDrop(event, ${index})"
-             ondragend="handleDragEnd(event)">
-            <div class="project-menu" onclick="event.stopPropagation(); showProjectMenu(${index}, event)">⋯</div>
-            <button type="button" class="project-links-icon-btn" onclick="event.stopPropagation(); openLinksModal(${index})" title="Open Links"><span class="project-icon">📁</span></button>
+             ondrop="handleDrop(event, ${project.originalIndex})"
+             ondragend="handleDragEnd(event)"`
+                 : ""
+             }>
+            <div class="project-menu" onclick="event.stopPropagation(); showProjectMenu(${project.originalIndex}, event)">⋯</div>
+            <button type="button" class="project-links-icon-btn" onclick="event.stopPropagation(); openLinksModal(${project.originalIndex})" title="Open Links"><span class="project-icon">📁</span></button>
             <div class="project-name">${escapeHtml(project.name)}</div>
             <div class="project-path">${escapeHtml(project.path)}</div>
         </div>
