@@ -2,6 +2,10 @@
 
 A web application to manage multiple Git projects from a single interface. Add your local project directories and perform Git operations like checking status, switching branches, and pulling changes.
 
+<p align="center">
+  <img src="static/media/image.png" alt="Project Manager" width="32%" />&nbsp;<img src="static/media/image2.png" alt="Project actions" width="32%" />&nbsp;<img src="static/media/image3.png" alt="Restore DB Docker" width="32%" />
+</p>
+
 ## Usage
 
 1. **Add a Project**: Click the "+ Add Project" button:
