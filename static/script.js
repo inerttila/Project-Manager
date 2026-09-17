@@ -978,6 +978,36 @@ function closeDockerRestoreModal() {
   document.getElementById("dockerRestoreModal").style.display = "none";
 }
 
+async function browseDockerBackup(event) {
+  const mode = event?.shiftKey ? "folder" : "file";
+  const browseBtn = document.querySelector("#dockerRestoreModal .path-browse-btn");
+  if (browseBtn) browseBtn.disabled = true;
+
+  try {
+    const response = await fetch(`${API_BASE}/docker-restore/browse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      showNotification(data.error || "Failed to open file browser", "error");
+      return;
+    }
+    if (data.cancelled || !data.path) {
+      return;
+    }
+
+    document.getElementById("dockerBackupPath").value = data.path;
+    await detectDockerBackup();
+  } catch (error) {
+    console.error("Error browsing backup path:", error);
+    showNotification("Failed to open file browser", "error");
+  } finally {
+    if (browseBtn) browseBtn.disabled = false;
+  }
+}
+
 async function detectDockerBackup() {
   const backupPath = document.getElementById("dockerBackupPath").value.trim();
   if (!backupPath) return;
@@ -997,7 +1027,7 @@ async function detectDockerBackup() {
     document.getElementById("dockerDbName").value = data.db_name || "";
   } catch (error) {
     console.error("Error detecting backup:", error);
-    showNotification("Failed to detect backup folder", "error");
+    showNotification("Failed to detect backup", "error");
   }
 }
 
@@ -1009,7 +1039,7 @@ async function runDockerRestore(event) {
   const restoreBtn = document.getElementById("dockerRestoreBtn");
 
   if (!backupPath) {
-    showNotification("Please enter a backup folder path", "error");
+    showNotification("Please enter a backup folder or .zip path", "error");
     return;
   }
 
@@ -1028,7 +1058,7 @@ async function runDockerRestore(event) {
       dbName = detectData.db_name || "";
       document.getElementById("dockerDbName").value = dbName;
     } catch (error) {
-      showNotification("Failed to detect backup folder", "error");
+      showNotification("Failed to detect backup", "error");
       return;
     }
   }

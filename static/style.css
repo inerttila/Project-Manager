@@ -255,6 +255,41 @@ h1 {
     max-width: 760px;
 }
 
+.path-input-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.path-input-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+.path-browse-btn {
+    flex-shrink: 0;
+    width: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.path-browse-btn:hover {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.path-browse-btn:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
 .docker-form-row {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

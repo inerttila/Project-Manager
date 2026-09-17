@@ -8,7 +8,7 @@ import queue
 import threading
 from pathlib import Path
 
-from docker_restore import detect_backup_info, restore_docker_database
+from docker_restore import detect_backup_info, restore_docker_database, pick_backup_path
 from git_stream import run_git_status, run_git_checkout, run_git_pull
 
 if platform.system() == 'Windows':
@@ -1032,6 +1032,22 @@ def docker_restore_detect():
         }), 200
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
+
+
+@app.route('/api/docker-restore/browse', methods=['POST'])
+def docker_restore_browse():
+    data = request.json or {}
+    mode = (data.get('mode') or 'file').strip().lower()
+    if mode not in ('file', 'folder'):
+        return jsonify({'error': 'mode must be file or folder'}), 400
+
+    try:
+        selected = pick_backup_path(mode=mode)
+        if not selected:
+            return jsonify({'cancelled': True, 'path': None}), 200
+        return jsonify({'cancelled': False, 'path': selected, 'mode': mode}), 200
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
 
 
 @app.route('/api/docker-restore/restore', methods=['POST'])
