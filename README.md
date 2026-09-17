@@ -20,6 +20,9 @@ A web application to manage multiple Git projects from a single interface. Add y
 
 4. **Odoo Config**: Click **Odoo Config** → first time it asks for your `odoo.conf` path (custom popup), then it will open it directly on future clicks.
 
+5. **Restore DB Docker**: Click **Restore DB Docker**, then pick a backup **folder** or **`.zip`** (browse icon, or paste the path). Restores into Postgres on `localhost:5435` (`dump.sql` + optional `filestore`).
+   - Browse icon → `.zip` · **Shift+click** → folder
+
 ## API Endpoints
 
 - `GET /api/projects` - Get all projects
@@ -34,6 +37,9 @@ A web application to manage multiple Git projects from a single interface. Add y
 - `POST /api/projects/reorder` - Save card order
 - `GET /api/settings/odoo-config-path` - Get saved Odoo config path
 - `POST /api/settings/odoo-config-path` - Save Odoo config path
+- `POST /api/docker-restore/detect` - Detect backup folder/zip
+- `POST /api/docker-restore/browse` - Native file/folder picker
+- `POST /api/docker-restore/restore-stream` - Restore into Docker Postgres (SSE)
 
 ## Notes
 
@@ -41,5 +47,6 @@ A web application to manage multiple Git projects from a single interface. Add y
 - Settings (like Odoo config path) are stored in `settings.json`
 - The application verifies that project paths exist before adding them
 - All Git operations are executed in the project's directory
+- Docker restore expects an Odoo-style backup with `dump.sql` (optional `filestore/`)
 
 - "Open on GitHub/GitLab" is detected from the repo remote URL
