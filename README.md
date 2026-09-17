@@ -2,7 +2,6 @@
 
 A web application to manage multiple Git projects from a single interface. Add your local project directories and perform Git operations like checking status, switching branches, and pulling changes.
 
-
 ## Usage
 
 1. **Add a Project**: Click the "+ Add Project" button:
@@ -33,7 +32,7 @@ A web application to manage multiple Git projects from a single interface. Add y
 - `PUT /api/projects/<id>/links` - Update links for a project
 - `GET /api/projects/<id>/git-status` - Get Git status
 - `POST /api/projects/<id>/checkout` - Switch branch
-- `POST /api/projects/<id>/pull` - Pull chang
+- `POST /api/projects/<id>/pull` - Pull changes
 - `POST /api/projects/reorder` - Save card order
 - `GET /api/settings/odoo-config-path` - Get saved Odoo config path
 - `POST /api/settings/odoo-config-path` - Save Odoo config path
